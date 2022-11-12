@@ -11,7 +11,7 @@ from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
-from imapclient import IMAPClient
+from imapclient import IMAPClient, SEEN
 import passencrypt
 
 config = configparser.ConfigParser()
@@ -29,11 +29,16 @@ def process_new_messages():
     logging.info('Processing new messages')
     imap.select_folder(config['folders']['to_submit'])
     messages = imap.search()
+    logging.info('Got %d messages', len(messages))
     for uid, message_data in imap.fetch(messages, "RFC822").items():
-        email_message = email.message_from_bytes(message_data[b"RFC822"])
-        print(uid, email_message.get("From"), email_message.get("Subject"))
+        message_bytes = message_data[b"RFC822"]
+        email_message = email.message_from_bytes(message_bytes)
+        logging.info('Message %d, %d bytes, From (%s), Subject "%s"', uid, len(message_bytes),
+                     email_message.get("From"),
+                     email_message.get("Subject"))
         submit_spam(email_message)
         imap.move(uid, config['folders']['submitted'])
+    logging.info('Finished processing new messages')
 
 
 def submit_spam(spam: Message):
@@ -48,11 +53,14 @@ def submit_spam(spam: Message):
     part.add_header("Content-Disposition", "attachment; filename=\"message.eml\"")
     message.attach(part)
 
-    with smtplib.SMTP_SSL(config["smtp"]["host"], int(config["smtp"]["port"])) as server:
-        server.login(config["smtp"]["username"], passencrypt.decrypt(config['smtp']['password']))
-        server.sendmail(message["From"], message["To"], message.as_string())
-
-    imap.append('Junk.Sent', message.as_string())
+    with smtplib.SMTP_SSL(config["smtp"]["host"], int(config["smtp"]["port"])) as smtp:
+        smtp.login(config["smtp"]["username"], passencrypt.decrypt(config['smtp']['password']))
+        response = smtp.sendmail(message["From"], message["To"], message.as_string())
+        smtp.quit()
+        if len(response) > 0:
+            logging.error('Error sending message: %s', response)
+        else:
+            imap.append(config['folders']['sent'], message.as_string(), (SEEN,))
 
 
 def run():
@@ -61,17 +69,22 @@ def run():
     imap.login(config['imap']['username'], passencrypt.decrypt(config['imap']['password']))
     imap.select_folder(config['folders']['to_submit'])
     process_new_messages()
+    is_idle = False
     while True:
         try:
             imap.idle()
+            is_idle = True
             responses = imap.idle_check(timeout=600)
+            imap.idle_done()
+            is_idle = False
             for (size, message) in responses:
-                if message.decode('UTF-8') == 'EXISTS' and size>0:
+                if message.decode('UTF-8') == 'EXISTS' and size > 0:
                     process_new_messages()
         except KeyboardInterrupt:
             break
         finally:
-            imap.idle_done()
+            if is_idle:
+                imap.idle_done()
     logging.info('Terminating')
     imap.logout()
 
