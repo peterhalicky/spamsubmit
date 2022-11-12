@@ -1,0 +1,2 @@
+cryptography~=38.0.3
+IMAPClient~=2.3.1
