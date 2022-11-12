@@ -21,4 +21,4 @@ WORKDIR /config
 
 USER app
 
-CMD . /venv/bin/activate && exec python spamsubmit.py spamsubmit.conf
+CMD . /venv/bin/activate && exec python /app/spamsubmit.py spamsubmit.conf
