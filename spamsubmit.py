@@ -55,7 +55,8 @@ def submit_spam(spam: Message):
 
     with smtplib.SMTP(config["smtp"]["host"], int(config["smtp"]["port"])) as smtp:
         smtp.starttls()
-        smtp.login(config["smtp"]["username"], passencrypt.decrypt(config['smtp']['password']))
+        if "username" in config["smtp"]:
+                smtp.login(config["smtp"]["username"], passencrypt.decrypt(config['smtp']['password']))
         response = smtp.sendmail(message["From"], message["To"], message.as_string())
         smtp.quit()
         if len(response) > 0:
